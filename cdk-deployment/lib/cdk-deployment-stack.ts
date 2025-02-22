@@ -11,50 +11,19 @@ export class CdkDeploymentStack extends cdk.Stack {
     super(scope, id, props);
 
     const websiteBucket = new s3.Bucket(this, "ReactAppBucket", {
-      // blockPublicAccess: s3.BlockPublicAccess.BLOCK_ALL,
+      blockPublicAccess: s3.BlockPublicAccess.BLOCK_ALL,
       websiteIndexDocument: "index.html",
       websiteErrorDocument: "index.html", // optional: can be used for client-side routing
       removalPolicy: cdk.RemovalPolicy.DESTROY, // remove bucket on stack deletion
-      enforceSSL: true,
-      publicReadAccess: true,
-      blockPublicAccess: new s3.BlockPublicAccess({
-        blockPublicAcls: false,
-        ignorePublicAcls: false,
-        blockPublicPolicy: false,
-        restrictPublicBuckets: false,
-      }),
-      cors: [
-        {
-          allowedMethods: [s3.HttpMethods.GET, s3.HttpMethods.HEAD],
-          allowedOrigins: ['*'],
-          allowedHeaders: ['*'],
-        },
-      ],
+      autoDeleteObjects: true,
+      publicReadAccess: false,
     });
-
-    const cloudfrontOAI = new cloudfront.OriginAccessIdentity(this, 'CloudFrontOAI', {
-      comment: "OAI for React App"
-    });
-
-    websiteBucket.addToResourcePolicy(new iam.PolicyStatement({
-      actions: ['s3:GetObject'],
-      resources: [websiteBucket.arnForObjects('*')],
-      principals: [new iam.CanonicalUserPrincipal(
-        cloudfrontOAI.cloudFrontOriginAccessIdentityS3CanonicalUserId
-      )]
-    }));
-
-    websiteBucket.grantRead(cloudfrontOAI);
 
     const cloudfrontDistribution = new cloudfront.Distribution(this, "ReactAppDistribution", {
       defaultBehavior: {
-        origin: new cloudfrontOrigins.S3Origin(websiteBucket, {
-          originAccessIdentity: cloudfrontOAI
-        }),
+        origin: cloudfrontOrigins.S3BucketOrigin.withOriginAccessControl(websiteBucket),
         viewerProtocolPolicy: cloudfront.ViewerProtocolPolicy.REDIRECT_TO_HTTPS,
-        responseHeadersPolicy: cloudfront.ResponseHeadersPolicy.CORS_ALLOW_ALL_ORIGINS,
         allowedMethods: cloudfront.AllowedMethods.ALLOW_GET_HEAD_OPTIONS,
-        cachedMethods: cloudfront.CachedMethods.CACHE_GET_HEAD_OPTIONS,
       },
       defaultRootObject: "index.html",
       errorResponses: [
@@ -65,18 +34,6 @@ export class CdkDeploymentStack extends cdk.Stack {
         }
       ]
     });
-
-    websiteBucket.addToResourcePolicy(new iam.PolicyStatement({
-      effect: iam.Effect.ALLOW,
-      principals: [new iam.ServicePrincipal('cloudfront.amazonaws.com')],
-      actions: ['s3:GetObject'],
-      resources: [websiteBucket.arnForObjects('*')],
-      conditions: {
-        StringEquals: {
-          'AWS:SourceArn': `arn:aws:cloudfront::${this.account}:distribution/${cloudfrontDistribution.distributionId}`
-        }
-      }
-    }));
 
     new s3deploy.BucketDeployment(this, "DeployReactApp", {
       sources: [s3deploy.Source.asset("../dist")], // path to your React build folder
